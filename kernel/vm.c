@@ -3,11 +3,18 @@
 #include "memlayout.h"
 #include "elf.h"
 #include "riscv.h"
-#include "defs.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "fs.h"
+#include "buf.h"
+#include "defs.h"
 
+#define BLKS_PER_PAGE (PGSIZE / BSIZE)
+
+
+
+#define SWAP_START_BLOCK (FSSIZE / 2)
 
 /*
  * the kernel's page table.
@@ -201,14 +208,14 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0) // leaf page table entry allocated?
+    if((pte = walk(pagetable, a, 0)) == 0)
       continue;   
-    if((*pte & PTE_V) == 0){  // has physical page been allocated?
-      if(*pte & PTE_S) {
+    if((*pte & PTE_V) == 0){
+      if(*pte & PTE_S && do_free) {
         int swap_index = *pte >> 10;
         free_swap_slot(swap_index);
-        *pte = 0;
       }
+      *pte = 0;
       continue;
     }
     if(do_free){
@@ -246,7 +253,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       return 0;
     }
     if(p != 0){
-      add_to_frame_table((uint64)mem, myproc(), a);
+      add_to_frame_table((uint64)mem, p, a);
     }
   }
   return newsz;
@@ -307,7 +314,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, struct proc *np)
 {
   pte_t *pte;
   uint64 pa, i;
@@ -316,14 +323,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      continue;   // page table entry hasn't been allocated
+      continue;
     if((*pte & PTE_V) == 0) {
-      // If the parent's page is in swap, we must pull it back into 
-      // memory for the child (or copy it to a new swap slot). 
-      // The easiest way is to just force a page fault to bring it back to RAM:
       if(*pte & PTE_S) {
         vmfault(old, i, 0); // Bring parent page back to RAM
-        pte = walk(old, i, 0); // Re-fetch the updated PTE
+        pte = walk(old, i, 0);
       } else {
         continue;
       }
@@ -337,6 +341,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       kfree(mem);
       goto err;
     }
+    add_to_frame_table((uint64)mem, np, i);
   }
   return 0;
 
@@ -380,7 +385,6 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     }
 
     pte = walk(pagetable, va0, 0);
-    // forbid copyout over read-only user text pages.
     if((*pte & PTE_W) == 0)
       return -1;
       
@@ -471,10 +475,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   }
 }
 
-// allocate and map user memory if process is referencing a page
-// that was lazily allocated in sys_sbrk().
-// returns 0 if va is invalid or already mapped, or if
-// out of physical memory, and physical address if successful.
+// Handle a page fault: either lazy-allocate or swap a page back in.
+// Returns physical address on success, 0 on failure.
 uint64
 vmfault(pagetable_t pagetable, uint64 va, int read)
 {
@@ -487,14 +489,28 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
   va = PGROUNDDOWN(va);
   pte_t *pte = walk(pagetable, va, 0);
 
-  if(pte != 0 && !(*pte & PTE_V)  && (*pte & PTE_S)) {
+  // --- Swap-in path ---
+  if(pte != 0 && !(*pte & PTE_V) && (*pte & PTE_S)) {
     int swap_idx = *pte >> 10;
 
     char *new_page = kalloc();
-    if(new_page == 0) return 0; // out of memory
+    if(new_page == 0) return 0;
 
-    memmove(new_page, swap_space[swap_idx], PGSIZE); // copy from swap to new page
-    free_swap_slot(swap_idx); // free the swap slot
+    // BUG FIX: SWAP_START_BLOCK is now FSSIZE/2 (= 100000), matching
+    // kalloc.c and virtio_disk.c.  Previously it was 10000, causing
+    // reads to go to completely wrong disk blocks.
+    uint start_block = SWAP_START_BLOCK + (swap_idx * BLKS_PER_PAGE);
+    struct buf *b = (struct buf*)p->swap_io_buf;
+
+    for(int i = 0; i < BLKS_PER_PAGE; i++){
+      memset(b, 0, sizeof(struct buf));
+      b->blockno = start_block + i;
+      b->dev = 1;
+      virtio_disk_rw(b, 0); // read from disk
+      memmove((char*)new_page + (i * BSIZE), b->data, BSIZE);
+    }
+
+    free_swap_slot(swap_idx);
 
     int flags = PTE_FLAGS(*pte);
     flags |= PTE_V;
@@ -505,13 +521,14 @@ vmfault(pagetable_t pagetable, uint64 va, int read)
     
     add_to_frame_table((uint64)new_page, p, va);
     return (uint64)new_page;
-
   }
 
+  // --- Already resident ---
   if(pte != 0 && (*pte & PTE_V)) {
     return 0;
   }
 
+  // --- Lazy-allocation path ---
   mem = (uint64) kalloc();
   if(mem == 0)
     return 0;
@@ -547,7 +564,7 @@ retry:
       frames_table[i].allocated = 1;
       frames_table[i].va = va;
       frames_table[i].owner = p;
-      frames_table[i].ref_bit = 1; // Set reference bit on allocation
+      frames_table[i].ref_bit = 1;
       p->resident_pages++;
       
       release(&ftable_lock);
@@ -562,5 +579,5 @@ retry:
   }
   kfree(evicted_page);
   acquire(&ftable_lock);
-  goto retry; // Try again to find a free frame after eviction
+  goto retry;
 }

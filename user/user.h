@@ -35,6 +35,8 @@ int getchildsyscount(int pid);
 int getlevel(void);
 int getmlfqinfo(int pid, struct mlfqinfo *info);
 int getvmstats(int pid, struct vmstats *stats);
+int setdisksched(int policy);
+int setraid(int level);
 // _end
 
 // ulib.c
@@ -73,4 +75,7 @@ struct vmstats {
  int pages_swapped_in;
  int pages_swapped_out;
  int resident_pages;
+uint total_disk_reads;
+uint total_disk_writes;
+uint avg_disk_latency;
 };

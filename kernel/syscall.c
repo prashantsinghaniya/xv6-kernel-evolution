@@ -111,6 +111,8 @@ extern uint64 sys_getchildsyscount(void);
 extern uint64 sys_getlevel(void);
 extern uint64 sys_getmlfqinfo(void);
 extern uint64 sys_getvmstats(void);
+extern uint64 sys_setdisksched(void);
+extern uint64 sys_setraid(void);
 // _end
 
 // An array mapping syscall numbers from syscall.h
@@ -147,6 +149,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_getlevel] sys_getlevel,
 [SYS_getmlfqinfo] sys_getmlfqinfo,
 [SYS_getvmstats] sys_getvmstats,
+[SYS_setdisksched] sys_setdisksched,
+[SYS_setraid] sys_setraid,
 
 // _end
 };

@@ -52,4 +52,6 @@ entry("getchildsyscount");
 entry("getlevel");
 entry("getmlfqinfo");
 entry("getvmstats");
+entry("setdisksched");
+entry("setraid");
 # _end

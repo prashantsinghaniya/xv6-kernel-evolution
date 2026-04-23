@@ -10,10 +10,9 @@ struct stat;
 struct superblock;
 struct mlfqinfo;
 struct vmstats;
-#define RAM_SIZE (128*1024*1024) // 128 MB of physical memory, for xv6's kernel and user pages
-// #define MAX_FRAMES (RAM_SIZE / PGSIZE) // Maximum number of frames in physical memory
-#define MAX_FRAMES 64
-#define SWAP_SIZE 128 // 4 mb swap size, 1024 pages, each 4 kb
+#define RAM_SIZE (128*1024*1024) 
+#define MAX_FRAMES (64)
+#define SWAP_SIZE (150000) 
 
 
 // bio.c
@@ -74,7 +73,7 @@ int            get_free_frame_inswap();
 struct         frame_info;
 extern struct spinlock ftable_lock; // lock for synchronizing access to swap space
 extern struct spinlock swap_lock; // lock for synchronizing access to swap space
-extern char   swap_space[][PGSIZE]; // or extern char swap_space[SWAP_SIZE][PGSIZE];
+// extern char   swap_space[][PGSIZE]; // or extern char swap_space[SWAP_SIZE][PGSIZE];
 void remove_from_frame_table(pagetable_t, uint64);
 
 // log.c
@@ -181,7 +180,7 @@ int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
-int             uvmcopy(pagetable_t, pagetable_t, uint64);
+int             uvmcopy(pagetable_t, pagetable_t, uint64, struct proc *);
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);

@@ -120,6 +120,7 @@ struct proc{
   int pages_swapped_in;
   int pages_swapped_out;
   int resident_pages;
+  void *swap_io_buf;
 };
 
 
@@ -142,4 +143,7 @@ struct vmstats{
   int pages_swapped_in;
   int pages_swapped_out;
   int resident_pages;
+  uint total_disk_reads;
+  uint total_disk_writes;
+  uint avg_disk_latency;
 };

@@ -22,6 +22,11 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
+extern uint total_disk_reads;
+extern uint total_disk_writes;
+extern uint total_disk_latency;
+extern uint completed_requests;
+
 void enqueue(int, struct proc *);
 void dequeue(int);
 int isEmpty(int);
@@ -154,7 +159,12 @@ found:
     release(&p->lock);
     return 0;
   }
-
+  if((p->swap_io_buf = kalloc()) == 0){
+    // kfree((void*)p->trapframe);
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -194,6 +204,8 @@ freeproc(struct proc *p)
   p->xstate = 0;
   p->syscount = 0;
   p->state = UNUSED;
+  if(p->swap_io_buf) kfree(p->swap_io_buf);
+  p->swap_io_buf = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -294,8 +306,10 @@ kfork(void)
     return -1;
   }
 
+  release(&np->lock);
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz, np) < 0){
+    acquire(&np->lock);
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -318,7 +332,7 @@ kfork(void)
 
   pid = np->pid;
 
-  release(&np->lock);
+  // release(&np->lock);
 
   acquire(&wait_lock);
   np->parent = p;
@@ -955,7 +969,13 @@ kgetvmstats(void){
   if(!found){
     return -1;
   }
-
+  local_stats.total_disk_reads = total_disk_reads;
+  local_stats.total_disk_writes = total_disk_writes;
+  if(completed_requests > 0){
+    local_stats.avg_disk_latency = total_disk_latency / completed_requests;
+  } else {
+    local_stats.avg_disk_latency = 0;
+  }
   if(copyout(myproc()->pagetable, stats_addr, (char *)&local_stats, sizeof(local_stats)) < 0){
     return -1;
   }

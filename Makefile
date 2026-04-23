@@ -156,6 +156,8 @@ UPROGS=\
 	$U/_test_children\
 	$U/_tforksyscount\
 	$U/_tsyscount\
+	$U/_test4\
+	$U/_ctestpa4
 # 	$U/_getvmstats\
 # 	$U/_getlevel
 

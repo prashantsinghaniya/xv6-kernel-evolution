@@ -8,6 +8,7 @@
 #include "vm.h"
 
 extern struct proc proc[NPROC];
+extern int disk_policy; // Defined in virtio_disk.c
 
 uint64
 sys_exit(void)
@@ -167,5 +168,23 @@ sys_getmlfqinfo(void){
 uint64
 sys_getvmstats(void){
   return kgetvmstats();
+}
+
+uint64 sys_setdisksched(void) {
+  int p;
+  argint(0, &p);
+  if(p < 0 || p > 1) return -1;
+  disk_policy = p; // 0 for FCFS, 1 for SSTF
+  return 0;
+}
+
+extern int raid_level; // Defined in virtio_disk.c
+
+uint64 sys_setraid(void) {
+  int level;
+  argint(0, &level);
+  if(level != 0 && level != 1 && level != 5) return -1;
+  raid_level = level;
+  return 0;
 }
 // _end
